@@ -8,6 +8,12 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from openai_model import model, tool_node
 
+# Optional import for LangSmith upload functionality
+try:
+    from upload_to_langsmith import upload_logs_to_langsmith
+except ImportError:
+    upload_logs_to_langsmith = None
+
 # 1. Configuration & State
 load_dotenv(override=True)
 os.environ["LANGSMITH_TRACING"] = "true"
@@ -75,3 +81,7 @@ if __name__ == "__main__":
         for node, data in output.items():
             print(f"--- Node: {node} ---")
             print(data["messages"][-1].content or "Calling Tools...")
+    
+    # Optional: Upload logs to LangSmith if function is available
+    if upload_logs_to_langsmith:
+        upload_logs_to_langsmith("log-analyzer", log_dir)

@@ -77,12 +77,17 @@ python main.py
 
 ```
 log_analyzer/
-├── main.py            # Agent state, workflow, and entry point
-├── log_reader.py      # Tool for reading log files (supports LOG_DIRECTORY)
-├── openai_model.py    # OpenAI model and tools configuration
-├── server.log         # Sample log file (default analyzed file)
-├── .env              # Environment variables (not in git)
-└── .env.example      # Environment variable template
+├── main.py                 # Agent state, workflow, and entry point
+├── log_reader.py          # Tool for reading log files (supports LOG_DIRECTORY)
+├── openai_model.py        # OpenAI model and tools configuration
+├── evaluate.py            # LangSmith SDK evaluation script
+├── evaluation_dataset.json # Test cases for evaluation
+├── EVALUATION.md          # Detailed evaluation guide
+├── TODO.md                # Future features and improvements
+├── requirements.txt       # Python dependencies
+├── server.log             # Sample log file (default analyzed file)
+├── .env                   # Environment variables (not in git)
+└── .env.example           # Environment variable template
 ```
 
 ## Environment Variables
@@ -136,6 +141,38 @@ The agent has access to the following tools:
 - ✅ **List log files tool**: Added `list_log_files` tool to discover available log files
 - ✅ **Model configuration**: Made OpenAI model configurable via `OPENAI_MODEL` environment variable
 - ✅ **API key validation**: Added error handling for missing API keys with helpful error messages
+- ✅ **LangSmith Evaluation**: Added comprehensive evaluation framework with SDK and UI support
+- ✅ **Test Dataset**: Created realistic test cases covering error detection, security, and analytics
+
+## Evaluation
+
+The agent includes comprehensive LangSmith evaluation support for both UI and SDK-based testing.
+
+### Quick Start
+
+**SDK Evaluation (Programmatic):**
+```bash
+python evaluate.py
+```
+
+**UI Evaluation:**
+1. Go to https://smith.langchain.com
+2. Create a dataset from `evaluation_dataset.json`
+3. Run an experiment with your agent
+
+### Evaluation Features
+
+- **6 Realistic Test Cases**: Error detection, HTTP errors, security, tracebacks, analytics
+- **Custom Evaluators**: Contains check, structure validation, minimum score threshold
+- **Comprehensive Metrics**: Pass rates, scores, category performance
+- **Debugging Tools**: Full trace viewing in LangSmith UI
+
+See [EVALUATION.md](EVALUATION.md) for detailed instructions on:
+- Setting up UI evaluations
+- Running SDK evaluations
+- Adding new test cases
+- Debugging failed tests
+- Continuous improvement workflow
 
 ## License
 
