@@ -1,10 +1,17 @@
 import os
 from pathlib import Path
+from typing import Annotated, Sequence, TypedDict
+from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 
-from agent_state import AgentState
 from openai_model import model, tool_node
 from dotenv import load_dotenv
+
+
+class AgentState(TypedDict):
+    """State with messages annotated for appending rather than overwriting."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
 
 # Load environment variables from .env file first
 load_dotenv(override=True, dotenv_path=".env")

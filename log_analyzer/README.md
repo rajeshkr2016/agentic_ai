@@ -77,10 +77,9 @@ python main.py
 
 ```
 log_analyzer/
-├── agent_state.py      # Defines the agent state structure
-├── main.py            # Main execution file with LangGraph workflow
+├── main.py            # Agent state, workflow, and entry point
 ├── log_reader.py      # Tool for reading log files (supports LOG_DIRECTORY)
-├── openai_model.py    # OpenAI model configuration
+├── openai_model.py    # OpenAI model and tools configuration
 ├── server.log         # Sample log file (default analyzed file)
 ├── .env              # Environment variables (not in git)
 └── .env.example      # Environment variable template
