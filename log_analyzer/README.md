@@ -1,6 +1,6 @@
 # Log Analyzer Agent
 
-A LangChain/LangGraph-based AI agent that analyzes log files using OpenAI's GPT-4 model. The agent can read log files and provide insights about errors, patterns, or issues.
+A LangChain/LangGraph-based AI agent that analyzes log files using OpenAI's GPT-5-mini model. The agent can read log files and provide insights about errors, patterns, or issues.
 
 ## Features
 
@@ -20,7 +20,7 @@ A LangChain/LangGraph-based AI agent that analyzes log files using OpenAI's GPT-
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd agentic_ai
+cd agentic_ai/log_analyzer
 ```
 
 2. Install dependencies:
@@ -30,7 +30,6 @@ pip install -r requirements.txt
 
 3. Set up environment variables:
 ```bash
-cd log_analyzer
 cp .env.example .env
 ```
 
@@ -49,7 +48,6 @@ LOG_DIRECTORY="./logs"
 Run the agent from the `log_analyzer` directory:
 
 ```bash
-cd log_analyzer
 python main.py
 ```
 
