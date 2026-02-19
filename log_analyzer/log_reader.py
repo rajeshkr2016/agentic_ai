@@ -1,8 +1,11 @@
+from collections import deque
 from langchain_core.tools import tool
 from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
 import os
+
+# Load environment variables
 load_dotenv(override=True, dotenv_path=".env")
 
 # Retrieve the directory from environment variables

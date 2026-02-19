@@ -1,11 +1,10 @@
-from langgraph.graph import StateGraph, START, END
+import os
 from pathlib import Path
+from langgraph.graph import StateGraph, START, END
 
 from agent_state import AgentState
 from openai_model import model, tool_node
-from log_reader import read_log_file
 from dotenv import load_dotenv
-import os
 
 # Load environment variables from .env file first
 load_dotenv(override=True, dotenv_path=".env")
