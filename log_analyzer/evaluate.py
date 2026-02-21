@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Dict, List, Any
 from dotenv import load_dotenv
 
-from langsmith import Client, traceable,evaluate
-from langsmith.evaluation import evaluate, LangChainStringEvaluator
-from langsmith.schemas import Example, Run
+from langsmith import Client, traceable
+from langsmith.evaluation import evaluate
+from langsmith.schemas import Run
 
 from main import app
 
@@ -22,7 +22,7 @@ load_dotenv(override=True, dotenv_path=".env")
 
 # Initialize LangSmith client
 client = Client(api_key=os.getenv("LANGSMITH_API_KEY"))
-PROJECT_NAME = os.getenv("LANGSMITH_PROJECT", "log-analyzer-eval")
+PROJECT_NAME = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
 
 
 def load_evaluation_dataset() -> List[Dict[str, Any]]:
@@ -76,7 +76,7 @@ def agent_predict(inputs: Dict[str, str]) -> Dict[str, str]:
     return {"output": result.get("output", "")}
 
 
-def contains_evaluator(run: Run, example: Example) -> Dict[str, Any]:
+def contains_evaluator(run: Run, example) -> Dict[str, Any]:
     """
     Custom evaluator that checks if the output contains expected keywords.
     """
@@ -96,7 +96,7 @@ def contains_evaluator(run: Run, example: Example) -> Dict[str, Any]:
     }
 
 
-def structure_evaluator(run: Run, example: Example) -> Dict[str, Any]:
+def structure_evaluator(run: Run, example) -> Dict[str, Any]:
     """
     Custom evaluator that checks if the output has expected structure elements.
     """
@@ -116,7 +116,7 @@ def structure_evaluator(run: Run, example: Example) -> Dict[str, Any]:
     }
 
 
-def min_score_evaluator(run: Run, example: Example) -> Dict[str, Any]:
+def min_score_evaluator(run: Run, example) -> Dict[str, Any]:
     """
     Evaluator that checks if the overall score meets the minimum threshold.
     """
@@ -136,39 +136,37 @@ def min_score_evaluator(run: Run, example: Example) -> Dict[str, Any]:
     }
 
 
-def run_evaluation():
+def run_evaluation(project_name: str = None, project_url: str = None):
     """
     Run the evaluation experiment using LangSmith SDK.
+    
+    Args:
+        project_name: LangSmith project name. If not provided, uses LANGSMITH_PROJECT env var.
+        project_url: LangSmith project URL. If not provided, constructs from project_name.
     """
-    print(f"🚀 Starting LangSmith evaluation for project: {PROJECT_NAME}")
+    if project_name is None:
+        project_name = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
+    
+    if project_url is None:
+        project_url = f"https://smith.langchain.com/projects/{project_name}"
+    
+    print(f"🚀 Starting LangSmith evaluation for project: {project_name}")
     print("=" * 60)
     
     # Load dataset
     dataset = load_evaluation_dataset()
     print(f"📊 Loaded {len(dataset)} test cases")
     
-    # Convert dataset to LangSmith examples
-    examples = []
-    for i, item in enumerate(dataset):
-        example = Example(
-            inputs=item["inputs"],
-            outputs=item["outputs"],
-            metadata=item.get("metadata", {})
-        )
-        examples.append(example)
-    
     # Create or get dataset in LangSmith
-    dataset_name = f"{PROJECT_NAME}-dataset"
+    dataset_name = f"{project_name}-dataset"
     try:
         # Try to get existing dataset
-        existing_dataset = client.read_dataset(dataset_name=dataset_name)
+        client.read_dataset(dataset_name=dataset_name)
         print(f"📁 Using existing dataset: {dataset_name}")
-        # Clear existing examples to avoid duplicates (optional - comment out to keep existing)
-        # client.delete_examples(dataset_name=dataset_name)
     except Exception:
         # Create new dataset
         try:
-            dataset_id = client.create_dataset(
+            client.create_dataset(
                 dataset_name=dataset_name,
                 description="Log analyzer agent evaluation dataset"
             )
@@ -176,14 +174,14 @@ def run_evaluation():
         except Exception as e:
             print(f"⚠️  Dataset creation issue (may already exist): {e}")
     
-    # Upload examples to dataset
+    # Upload examples to dataset (use raw dicts; LangSmith assigns ids)
     try:
         client.create_examples(
-            inputs=[ex.inputs for ex in examples],
-            outputs=[ex.outputs for ex in examples],
+            inputs=[item["inputs"] for item in dataset],
+            outputs=[item["outputs"] for item in dataset],
             dataset_name=dataset_name
         )
-        print(f"✅ Uploaded {len(examples)} examples to dataset")
+        print(f"✅ Uploaded {len(dataset)} examples to dataset")
     except Exception as e:
         print(f"⚠️  Example upload issue (may already exist): {e}")
         print(f"   Continuing with existing examples...")
@@ -200,23 +198,103 @@ def run_evaluation():
             structure_evaluator,
             min_score_evaluator,
         ],
-        experiment_prefix=f"{PROJECT_NAME}-experiment",
+        experiment_prefix=f"{project_name}-experiment",
         max_concurrency=1,  # Run sequentially to avoid rate limits
-        verbose=True,
     )
     
     print("\n" + "=" * 60)
     print("📈 Evaluation Results Summary")
     print("=" * 60)
     
-    # Print summary statistics
-    if results:
-        print(f"\n✅ Evaluation completed!")
-        print(f"📊 View results in LangSmith UI:")
-        print(f"   https://smith.langchain.com/projects/{PROJECT_NAME}")
-        print(f"\n💡 To view detailed results, check the LangSmith dashboard.")
+    # Wait for experiment feedback to be processed so we can read results
+    results.wait()
+    
+    # Extract the actual experiment/results URL
+    results_url = None
+    try:
+        # Try to get the experiment details from the results
+        if hasattr(results, '_experiment_name'):
+            experiment_name = results._experiment_name
+            project = client.read_project(project_name=project_name)
+            
+            # List experiments to find the one we just ran
+            experiments = client.list_projects(project_id=project.id) if hasattr(project, 'id') else None
+            if experiments:
+                # Try to find matching experiment
+                for exp in experiments:
+                    if hasattr(exp, 'name') and experiment_name in exp.name:
+                        results_url = getattr(exp, 'url', None)
+                        break
+    except Exception as e:
+        pass
+    
+    # Fallback: construct from results object metadata if available
+    if not results_url:
+        try:
+            # Collect session IDs from results to build URL
+            session_ids = set()
+            for row in results:
+                if hasattr(row, 'session_id'):
+                    session_ids.add(str(row.session_id))
+            
+            if session_ids:
+                # Use first session ID to construct URL
+                first_session = list(session_ids)[0]
+                results_url = f"{project_url}?selectedSessions={first_session}"
+        except Exception:
+            pass
+    
+    # If still no URL, try to read the project and get experiment info
+    if not results_url or results_url == project_url:
+        try:
+            project = client.read_project(project_name=project_name)
+            # Try to find the latest experiment
+            if hasattr(project, 'id'):
+                experiments = list(client.list_runs(
+                    project_id=project.id,
+                    execution_order="DESC",
+                    limit=1
+                ))
+                if experiments:
+                    exp = experiments[0]
+                    if hasattr(exp, 'session_id'):
+                        results_url = f"{project_url}?selectedSessions={exp.session_id}"
+        except Exception:
+            pass
+    
+    # Final fallback to project URL
+    if not results_url:
+        results_url = project_url
+    
+    # Aggregate scores by evaluator key
+    scores_by_key: Dict[str, List[float]] = {}
+    n_results = 0
+    for row in results:
+        n_results += 1
+        eval_results = getattr(row, "evaluation_results", None)
+        if eval_results is None:
+            continue
+        res_list = getattr(eval_results, "results", [])
+        for r in res_list or []:
+            key = getattr(r, "key", "unknown")
+            score = getattr(r, "score", None)
+            if score is not None and isinstance(score, (int, float)):
+                scores_by_key.setdefault(key, []).append(float(score))
+    
+    if not scores_by_key and n_results == 0:
+        print("\n⚠️  No evaluation results found. Results may still be processing.")
+        print("   Check the LangSmith UI in a minute for full feedback.")
     else:
-        print("⚠️  No results returned from evaluation")
+        print(f"\n✅ Evaluation completed ({n_results} runs)")
+        if scores_by_key:
+            print("\n  Evaluator scores (average):")
+            for key in sorted(scores_by_key.keys()):
+                vals = scores_by_key[key]
+                avg = sum(vals) / len(vals) if vals else 0
+                print(f"    {key}: {avg:.2f}  (n={len(vals)})")
+        print(f"\n📊 View full results in LangSmith:")
+        print(f"   {results_url}")
+    print()
 
 
 if __name__ == "__main__":

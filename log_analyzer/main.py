@@ -4,15 +4,16 @@ from typing import Annotated, Sequence, TypedDict, Literal
 from dotenv import load_dotenv
 
 from langchain_core.messages import BaseMessage, HumanMessage
+from langsmith import traceable
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from openai_model import model, tool_node
 
 # Optional import for LangSmith upload functionality
-try:
-    from upload_to_langsmith import upload_logs_to_langsmith
-except ImportError:
-    upload_logs_to_langsmith = None
+#try:
+from upload_to_langsmith import upload_logs_to_langsmith
+#except ImportError:
+#    upload_logs_to_langsmith = None
 
 # 1. Configuration & State
 load_dotenv(override=True)
@@ -22,6 +23,7 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 # 2. Nodes
+@traceable(run_type="llm")
 def call_model(state: AgentState):
     """The 'Brain' - decides which logs to read."""
     response = model.invoke(state["messages"])
@@ -38,6 +40,7 @@ def summarize_results(state: AgentState):
     return {"messages": [response]}
 
 # 3. Routing Logic (The Conditional Edge)
+@traceable
 def router(state: AgentState) -> Literal["tools", "summarize", "agent"]:
     last_msg = state["messages"][-1]
     

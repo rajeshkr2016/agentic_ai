@@ -2,6 +2,21 @@
 
 A LangChain/LangGraph-based AI agent that analyzes log files using OpenAI's GPT-5-mini model. The agent can read log files and provide insights about errors, patterns, or issues.
 
+Combining Tracing & Evals
+Detection: Use automated online evaluation to track production traces for issues like hallucinations or poor, low-quality, or high-latency responses.
+Diagnosis: Use tracing data to inspect the exact prompt, retrieved context, or tool output that caused a bad evaluation result.
+Optimization: Use the combined data to create better datasets, fine-tune models, or refine prompts.
+
+Evaluations (Evals)
+Evals verify if the LLM is acting as expected. They can be code-based (deterministic) or use "LLM-as-a-judge" to evaluate subjective answers (e.g., toxicity, accuracy). 
+The Pragmatic Engineer
+The Pragmatic Engineer
+Trace-level Evals: Evaluates the success of the entire workflow (end-to-end).
+Span-level Evals: Evaluates individual steps for granular debugging.
+Online Evals: Real-time evaluation in production, providing automated, continuous monitoring for performance degradation.
+Offline Evals: Testing changes on datasets before deployment. 
+
+
 ## Features
 
 - Reads and analyzes log files using AI
