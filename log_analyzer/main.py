@@ -7,7 +7,16 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langsmith import traceable
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from openai_model import model, tool_node
+
+# Unset the model name env var to avoid conflicts
+# if "MODEL_NAME" in os.environ:
+#     del os.environ["MODEL_NAME"]
+
+from model_loader import load_model
+from log_reader import read_log_file, list_log_files
+
+tools = [read_log_file, list_log_files]
+model, tool_node = load_model(tools)
 
 # Optional import for LangSmith upload functionality
 #try:
@@ -32,8 +41,17 @@ def call_model(state: AgentState):
 def summarize_results(state: AgentState):
     """The 'Synthesizer' - converts raw log data into a clean report."""
     summary_prompt = HumanMessage(content=(
-        "You have finished reading the logs. Provide a structured 'Log Analysis Summary' "
-        "including: 1. Root Cause, 2. Timestamp, and 3. Suggested Fix."
+        "You have finished reading the logs. Provide a structured log analysis summary "
+        "using EXACTLY this markdown format:\n\n"
+        "### Conclusion\n"
+        "<one-sentence overall finding>\n\n"
+        "### 1. Root Cause\n"
+        "<description>\n\n"
+        "### 2. Timestamp\n"
+        "<first and last relevant timestamp>\n\n"
+        "### 3. Suggested Fix\n"
+        "<actionable recommendation>\n\n"
+        "Do not add any text before '### Conclusion'."
     ))
     # We pass the full history to the model for the final summary
     response = model.invoke(state["messages"] + [summary_prompt])
@@ -85,6 +103,6 @@ if __name__ == "__main__":
             print(f"--- Node: {node} ---")
             print(data["messages"][-1].content or "Calling Tools...")
     
-    # Optional: Upload logs to LangSmith if function is available
-    if upload_logs_to_langsmith:
-        upload_logs_to_langsmith("log-analyzer", log_dir)
+    # # Optional: Upload logs to LangSmith if function is available
+    # if upload_logs_to_langsmith:
+    #     upload_logs_to_langsmith("log-analyzer", log_dir)

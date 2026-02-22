@@ -174,17 +174,21 @@ def run_evaluation(project_name: str = None, project_url: str = None):
         except Exception as e:
             print(f"⚠️  Dataset creation issue (may already exist): {e}")
     
-    # Upload examples to dataset (use raw dicts; LangSmith assigns ids)
-    try:
-        client.create_examples(
-            inputs=[item["inputs"] for item in dataset],
-            outputs=[item["outputs"] for item in dataset],
-            dataset_name=dataset_name
-        )
-        print(f"✅ Uploaded {len(dataset)} examples to dataset")
-    except Exception as e:
-        print(f"⚠️  Example upload issue (may already exist): {e}")
-        print(f"   Continuing with existing examples...")
+    # Upload examples only if the dataset is empty (avoid duplicates on re-runs)
+    existing_examples = list(client.list_examples(dataset_name=dataset_name))
+    if existing_examples:
+        print(f"⏭️  Skipping upload — {len(existing_examples)} examples already exist in dataset")
+    else:
+        try:
+            client.create_examples(
+                inputs=[item["inputs"] for item in dataset],
+                outputs=[item["outputs"] for item in dataset],
+                dataset_name=dataset_name
+            )
+            print(f"✅ Uploaded {len(dataset)} examples to dataset")
+        except Exception as e:
+            print(f"⚠️  Example upload issue: {e}")
+            print(f"   Continuing with existing examples...")
     
     # Run evaluation
     print("\n🔍 Running evaluation...")
@@ -209,62 +213,23 @@ def run_evaluation(project_name: str = None, project_url: str = None):
     # Wait for experiment feedback to be processed so we can read results
     results.wait()
     
-    # Extract the actual experiment/results URL
-    results_url = None
+    # Get the correct experiment URL directly from results.experiment_name
+    results_url = project_url  # fallback
     try:
-        # Try to get the experiment details from the results
-        if hasattr(results, '_experiment_name'):
-            experiment_name = results._experiment_name
-            project = client.read_project(project_name=project_name)
-            
-            # List experiments to find the one we just ran
-            experiments = client.list_projects(project_id=project.id) if hasattr(project, 'id') else None
-            if experiments:
-                # Try to find matching experiment
-                for exp in experiments:
-                    if hasattr(exp, 'name') and experiment_name in exp.name:
-                        results_url = getattr(exp, 'url', None)
-                        break
-    except Exception as e:
+        experiment_name = results.experiment_name
+        experiment_project = client.read_project(project_name=experiment_name)
+        experiment_url = getattr(experiment_project, 'url', None)
+        if experiment_url:
+            results_url = experiment_url
+        else:
+            # Construct URL from dataset id + experiment id
+            dataset = client.read_dataset(dataset_name=dataset_name)
+            results_url = (
+                f"https://smith.langchain.com/o/~/datasets/{dataset.id}/compare"
+                f"?selectedSessions={experiment_project.id}"
+            )
+    except Exception:
         pass
-    
-    # Fallback: construct from results object metadata if available
-    if not results_url:
-        try:
-            # Collect session IDs from results to build URL
-            session_ids = set()
-            for row in results:
-                if hasattr(row, 'session_id'):
-                    session_ids.add(str(row.session_id))
-            
-            if session_ids:
-                # Use first session ID to construct URL
-                first_session = list(session_ids)[0]
-                results_url = f"{project_url}?selectedSessions={first_session}"
-        except Exception:
-            pass
-    
-    # If still no URL, try to read the project and get experiment info
-    if not results_url or results_url == project_url:
-        try:
-            project = client.read_project(project_name=project_name)
-            # Try to find the latest experiment
-            if hasattr(project, 'id'):
-                experiments = list(client.list_runs(
-                    project_id=project.id,
-                    execution_order="DESC",
-                    limit=1
-                ))
-                if experiments:
-                    exp = experiments[0]
-                    if hasattr(exp, 'session_id'):
-                        results_url = f"{project_url}?selectedSessions={exp.session_id}"
-        except Exception:
-            pass
-    
-    # Final fallback to project URL
-    if not results_url:
-        results_url = project_url
     
     # Aggregate scores by evaluator key
     scores_by_key: Dict[str, List[float]] = {}
