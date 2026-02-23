@@ -1,14 +1,14 @@
 # Log Analyzer Agent - Demo
 
 Purpose: 
-Build and evaluate a LangGraph-based log analysis agent that,a short walkthrough of tasks.
+Build and evaluate a LangGraph-based log analysis agent and a short walkthrough.
 
 ## Task Coverage
 
 1. LangGraph workflow with tool use (`main.py` + `model/model_loader.py` + `tools/log_reader.py`)
 2. Small test dataset (`data/evaluation_dataset.json`, 6 examples)
 3. LangSmith evaluation via UI and SDK (`evaluate.py`)
-4. Realistic debug-improve loop using traces
+4. Realistic debug-improve loop using experiments
 
 ## Architecture
 
@@ -50,6 +50,26 @@ flowchart TD
 
 ## Evaluation
 
+### Evaluation Architecture
+
+```mermaid
+flowchart LR
+    CLI["CLI-evaluate.py"] --> AGENT["Agent-LangGraph"]
+    AGENT --> E1["contains_check"]
+    AGENT --> E2["structure_check"]
+    AGENT --> E3["min_score_check"]
+    AGENT --> E4["llm_judge-temp=0"]
+    E1 & E2 & E3 & E4 --> LS["LangSmith-Experiment"]
+
+    style CLI fill:#475569,color:#fff
+    style AGENT fill:#14532d,color:#fff
+    style E1 fill:#1e3a5f,color:#fff
+    style E2 fill:#1e3a5f,color:#fff
+    style E3 fill:#1e3a5f,color:#fff
+    style E4 fill:#1e3a5f,color:#fff
+    style LS fill:#0ea5e9,color:#fff
+```
+
 ### SDK path
 
 ```bash
@@ -57,6 +77,19 @@ cd log_analyzer
 pip install -r requirements.txt
 python evaluate.py
 ```
+
+**CLI overrides** — all `.env` values can be overridden at runtime:
+
+```bash
+# Run example 0 with groq agent, openai judge
+python evaluate.py --provider groq --model llama-3.3-70b-versatile \
+                   --judge-provider openai --judge-model gpt-4o-mini \
+                   --example 0
+
+# Run all 6 examples (6 separate experiments)
+python evaluate.py --provider groq --model llama-3.3-70b-versatile
+```
+
 
 What happens:
 1. Dataset is loaded and synced to LangSmith
@@ -114,19 +147,7 @@ EVAL_THROTTLE_SECONDS=3 python evaluate.py
 ### Commands:
 python evaluate.py --provider openai --model gpt-5-mini  --judge-provider openai --judge-model gemma2-9b-it --example 0
 
-Models:
-llama-3.3-70b-versatile
 
-#questions:
-- Evaluator
-  - use evaluation experient from a successful run or set a baseline reference with another model?
-  - loading your own classifier, agent of your own, regression models, custom code evaluators we can attach with SDK
-  - Rate limiters are there in free models and hence have to use few cases only
-  - 
-
+Friction logs:
 - Auto evaluators
-  - Its in tutorial, UI is different.
-
-- Issues:
-  - Sometimes it shows failed
-  - 
+  - Its in tutorial, but current UI is different.

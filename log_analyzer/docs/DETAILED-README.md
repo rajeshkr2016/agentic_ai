@@ -96,8 +96,40 @@ python evaluate.py
 1. Loads local dataset JSON.
 2. Creates/uses `<project>-dataset` in LangSmith.
 3. Runs `agent_predict` over each example.
-4. Scores each run with 3 custom evaluators.
+4. Scores each run with 3 custom evaluators + LLM judge.
 5. Prints aggregate scores and a LangSmith results URL.
+
+### Evaluation Architecture
+
+```mermaid
+flowchart LR
+    CLI["CLI\nevaluate.py"] --> AGENT["Agent\nLangGraph"]
+    AGENT --> E1["contains_check"]
+    AGENT --> E2["structure_check"]
+    AGENT --> E3["min_score_check"]
+    AGENT --> E4["llm_judge\ntemp=0"]
+    E1 & E2 & E3 & E4 --> LS["LangSmith\nExperiment"]
+
+    style CLI fill:#475569,color:#fff
+    style AGENT fill:#14532d,color:#fff
+    style E1 fill:#1e3a5f,color:#fff
+    style E2 fill:#1e3a5f,color:#fff
+    style E3 fill:#1e3a5f,color:#fff
+    style E4 fill:#1e3a5f,color:#fff
+    style LS fill:#0ea5e9,color:#fff
+```
+
+**CLI overrides** — all `.env` values can be overridden at runtime:
+
+```bash
+# Run example 0 with groq agent, openai judge
+python evaluate.py --provider groq --model llama-3.3-70b-versatile \
+                   --judge-provider openai --judge-model gpt-4o-mini \
+                   --example 0
+
+# Run all 6 examples (6 separate experiments)
+python evaluate.py --provider groq --model llama-3.3-70b-versatile
+```
 
 ---
 
