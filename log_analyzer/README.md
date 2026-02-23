@@ -50,6 +50,26 @@ flowchart TD
 
 ## Evaluation
 
+### Evaluation Architecture
+
+```mermaid
+flowchart LR
+    CLI["CLI-evaluate.py"] --> AGENT["Agent-LangGraph"]
+    AGENT --> E1["contains_check"]
+    AGENT --> E2["structure_check"]
+    AGENT --> E3["min_score_check"]
+    AGENT --> E4["llm_judge-temp=0"]
+    E1 & E2 & E3 & E4 --> LS["LangSmith-Experiment"]
+
+    style CLI fill:#475569,color:#fff
+    style AGENT fill:#14532d,color:#fff
+    style E1 fill:#1e3a5f,color:#fff
+    style E2 fill:#1e3a5f,color:#fff
+    style E3 fill:#1e3a5f,color:#fff
+    style E4 fill:#1e3a5f,color:#fff
+    style LS fill:#0ea5e9,color:#fff
+```
+
 ### SDK path
 
 ```bash
@@ -57,6 +77,19 @@ cd log_analyzer
 pip install -r requirements.txt
 python evaluate.py
 ```
+
+**CLI overrides** — all `.env` values can be overridden at runtime:
+
+```bash
+# Run example 0 with groq agent, openai judge
+python evaluate.py --provider groq --model llama-3.3-70b-versatile \
+                   --judge-provider openai --judge-model gpt-4o-mini \
+                   --example 0
+
+# Run all 6 examples (6 separate experiments)
+python evaluate.py --provider groq --model llama-3.3-70b-versatile
+```
+
 
 What happens:
 1. Dataset is loaded and synced to LangSmith
@@ -129,4 +162,5 @@ llama-3.3-70b-versatile
 
 - Issues:
   - Sometimes it shows failed
+  - there was no way to store raw logs- got claude suggestions to store in fixtures
   - 
