@@ -9,11 +9,14 @@
 - [ ] **Multi-file correlation** – Correlate events across multiple log files by timestamp
 - [ ] **Real-time monitoring** – Tail log files and analyze new entries as they arrive
 - [ ] **Slack/Teams integration** – Post critical findings to messaging channels
+- [ ] **Elasticsearch integration** - Integrate with ELK and read from an index or so
 
 ## Improvements
 
+- [x] **LangSmith Evaluation** – SDK and UI evaluation framework with realistic test cases ✅
 - [ ] **Unit tests** – Pytest for tools (list_log_files, read_log_file) and workflow routing
 - [ ] **Integration tests** – End-to-end runs with mock log files
+- [ ] **Infinite loop guard** – Replace `len(state["messages"]) < 6` heuristic in router with an explicit `tool_call_count` field in `AgentState`; increment in a `tools_with_counter` wrapper and add a `MAX_TOOL_CALLS` ceiling that forces summarization
 - [ ] **Memory-efficient reading** – Tail large logs without loading entire file (e.g., seek from end)
 - [ ] **Path validation** – Restrict log paths to LOG_DIRECTORY to prevent path traversal
 - [ ] **Structured logging** – Use Python logging instead of print for execution output
