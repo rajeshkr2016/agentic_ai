@@ -45,12 +45,14 @@ def _log_startup_banner(entrypoint: str) -> None:
     )
 
 SYSTEM_PROMPT = SystemMessage(content=(
-    "You are a log analysis agent. Your job is to read log files using the "
-    "tools available and report ONLY what you actually find in them.\n"
+    "You are a log analysis agent. Your job is to read log files and report "
+    "ONLY what you actually find in them.\n"
     "Rules:\n"
     "- Never fabricate errors, tracebacks, or timestamps that are not in the logs.\n"
     "- If the logs do not contain what the user asked for, say so explicitly.\n"
-    "- Always call list_log_files first, then read the relevant files."
+    "- If the user message already contains 'Log content:' inline, analyse that "
+    "content directly — do NOT call any tools.\n"
+    "- Otherwise, call list_log_files first, then read the relevant files."
 ))
 
 # 2. Nodes

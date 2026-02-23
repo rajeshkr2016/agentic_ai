@@ -1,14 +1,14 @@
 # Log Analyzer Agent - Demo
 
 Purpose: 
-Build and evaluate a LangGraph-based log analysis agent that,a short walkthrough of tasks.
+Build and evaluate a LangGraph-based log analysis agent and a short walkthrough.
 
 ## Task Coverage
 
 1. LangGraph workflow with tool use (`main.py` + `model/model_loader.py` + `tools/log_reader.py`)
 2. Small test dataset (`data/evaluation_dataset.json`, 6 examples)
 3. LangSmith evaluation via UI and SDK (`evaluate.py`)
-4. Realistic debug-improve loop using traces
+4. Realistic debug-improve loop using experiments
 
 ## Architecture
 
@@ -147,20 +147,7 @@ EVAL_THROTTLE_SECONDS=3 python evaluate.py
 ### Commands:
 python evaluate.py --provider openai --model gpt-5-mini  --judge-provider openai --judge-model gemma2-9b-it --example 0
 
-Models:
-llama-3.3-70b-versatile
 
-#questions:
-- Evaluator
-  - use evaluation experient from a successful run or set a baseline reference with another model?
-  - loading your own classifier, agent of your own, regression models, custom code evaluators we can attach with SDK
-  - Rate limiters are there in free models and hence have to use few cases only
-  - 
-
+Friction logs:
 - Auto evaluators
-  - Its in tutorial, UI is different.
-
-- Issues:
-  - Sometimes it shows failed
-  - there was no way to store raw logs- got claude suggestions to store in fixtures
-  - 
+  - Its in tutorial, but current UI is different.

@@ -1,7 +1,8 @@
 [
   {
     "inputs": {
-      "query": "Analyze the logs and identify any errors or crashes."
+      "query": "Analyze the logs and identify any errors or crashes.",
+      "log_fixture": "example_0_errors"
     },
     "outputs": {
       "expected_contains": ["error", "crash", "exception", "traceback"],
@@ -15,7 +16,8 @@
   },
   {
     "inputs": {
-      "query": "Find all HTTP 5xx errors in the logs and tell me when they occurred."
+      "query": "Find all HTTP 5xx errors in the logs and tell me when they occurred.",
+      "log_fixture": "example_1_http"
     },
     "outputs": {
       "expected_contains": ["500", "502", "503", "504", "5xx"],
@@ -29,7 +31,8 @@
   },
   {
     "inputs": {
-      "query": "Check if there are any authentication failures or unauthorized access attempts."
+      "query": "Check if there are any authentication failures or unauthorized access attempts.",
+      "log_fixture": "example_2_auth"
     },
     "outputs": {
       "expected_contains": ["401", "403", "unauthorized", "authentication", "login"],
@@ -43,7 +46,8 @@
   },
   {
     "inputs": {
-      "query": "Analyze the logs and provide a summary of the most critical issues."
+      "query": "Analyze the logs and provide a summary of the most critical issues.",
+      "log_fixture": "example_3_critical"
     },
     "outputs": {
       "expected_contains": ["critical", "issue", "problem"],
@@ -57,7 +61,8 @@
   },
   {
     "inputs": {
-      "query": "Find any Python tracebacks or stack traces in the logs."
+      "query": "Find any Python tracebacks or stack traces in the logs.",
+      "log_fixture": "example_4_traceback"
     },
     "outputs": {
       "expected_contains": ["traceback", "stack trace", "exception", "file", "line"],
@@ -71,7 +76,8 @@
   },
   {
     "inputs": {
-      "query": "What are the peak traffic times based on the log timestamps?"
+      "query": "What are the peak traffic times based on the log timestamps?",
+      "log_fixture": "example_5_traffic"
     },
     "outputs": {
       "expected_contains": ["peak", "traffic", "time", "hour", "timestamp"],

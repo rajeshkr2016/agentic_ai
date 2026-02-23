@@ -24,7 +24,9 @@ load_dotenv(override=True, dotenv_path=".env")
 
 client = Client(api_key=os.getenv("LANGSMITH_API_KEY"))
 PROJECT_NAME = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
+FIXTURE_DATASET = "log-analyzer-fixtures"
 _APP = None
+_FIXTURE_CACHE: dict[str, str] = {}  # name -> log content, populated lazily
 
 
 # ---------------------------------------------------------------------------
@@ -64,12 +66,40 @@ def run_agent(query: str) -> Dict[str, Any]:
         return {"output": last.content if hasattr(last, "content") else str(last)}
     return {"output": "No response generated"}
 
+def _get_fixture(name: str) -> str:
+    """
+    Fetch a log fixture from the LangSmith 'log-analyzer-fixtures' dataset by name.
+    Bulk-loads all fixtures on first call and caches in-process — one API call per run.
+    """
+    if not _FIXTURE_CACHE:
+        examples = list(client.list_examples(dataset_name=FIXTURE_DATASET))
+        for ex in examples:
+            _FIXTURE_CACHE[ex.inputs.get("name", "")] = ex.inputs.get("content", "")
+
+    if name not in _FIXTURE_CACHE:
+        print(f"⚠️  Fixture '{name}' not found in LangSmith. Run: python upload_fixtures.py")
+        return ""
+
+    return _FIXTURE_CACHE[name]
+
 
 def agent_predict(inputs: Dict[str, str]) -> Dict[str, str]:
     """Called by LangSmith evaluate() for each example. Throttled between calls."""
     import time
     throttle = float(os.getenv("EVAL_THROTTLE_SECONDS", "15"))
-    result = run_agent(inputs.get("query", ""))
+    query = inputs.get("query", "")
+    fixture_name = inputs.get("log_fixture")
+
+    if fixture_name:
+        log_content = _get_fixture(fixture_name)
+        if log_content:
+            query = (
+                f"{query}\n\n"
+                f"IMPORTANT: Use ONLY the log content below. Do NOT call any tools.\n"
+                f"Log content:\n{log_content}"
+            )
+
+    result = run_agent(query)
     print(f"[evaluate] throttling {throttle}s before next example...")
     time.sleep(throttle)
     return {"output": result.get("output", "")}
@@ -177,12 +207,12 @@ REASON: <one sentence>"""
 
 def _experiment_prefix(project_name: str, example_index: int) -> str:
     """
-    Produces: {project}-{provider}-{model}-example-{N}
-    e.g.    : log-analyzer-groq-llama-3.3-70b-versatile-example-0
+    Produces: {project}-example-{N}
+    e.g.    : log-analyzer-example-0
     """
     provider = os.getenv("LLM_PROVIDER", "openai")
     model = os.getenv("MODEL_NAME", "default")
-    return f"{project_name}-{provider}-{model}-example-{example_index}"
+    return f"{project_name}-example-{example_index}"
 
 
 # ---------------------------------------------------------------------------
