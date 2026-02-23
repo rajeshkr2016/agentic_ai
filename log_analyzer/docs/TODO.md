@@ -9,7 +9,7 @@
 - [ ] **Multi-file correlation** – Correlate events across multiple log files by timestamp
 - [ ] **Real-time monitoring** – Tail log files and analyze new entries as they arrive
 - [ ] **Slack/Teams integration** – Post critical findings to messaging channels
-- [ ] **Elasticsearch integration** - Integrate with ELK and read from an index or so
+- [ ] **Elasticsearch integration** - convert this to RAG and Integrate with ELK and read from an index or so
 
 ## Improvements
 

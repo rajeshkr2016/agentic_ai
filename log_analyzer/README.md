@@ -110,6 +110,8 @@ What happens:
 2. Identify weak category from scores
 3. Open trace and diagnose (tool miss? weak summary? missing context?)
 4. Apply one fix in code or parameters - like temperature etc
+   - Change Summary prompt, add or uncomment the below line:
+   - Or add more fix related to the example run
 5. Re-run eval and compare results
 
 For a Log Analyzer Agent specifically, use temperature=0.0 — you want deterministic, consistent outputs when classifying severity or identifying root causes. Higher temperature introduces randomness which hurts your eval scores.
@@ -123,7 +125,7 @@ For a Log Analyzer Agent specifically, use temperature=0.0 — you want determin
 | Generating recommendations | `0.1 – 0.3` |
 | Creative / summarization | `0.5+` |
 
-LLM_TEMPERATURE=0.5 python evaluate.py
+
 
 Gemini Free tier for LLM as Judge:
 ### Gemini free tier (default)
@@ -147,7 +149,20 @@ EVAL_THROTTLE_SECONDS=3 python evaluate.py
 ### Commands:
 python evaluate.py --provider openai --model gpt-5-mini  --judge-provider openai --judge-model gemma2-9b-it --example 0
 
+LLM_TEMPERATURE=0.5 python evaluate.py
 
-Friction logs:
-- Auto evaluators
-  - Its in tutorial, but current UI is different.
+Agent Model:
+openai - gpt-5-mini
+
+Model For llm judge:
+- groq - llama-3.3-70b-versatile
+
+
+#questions:
+- Evaluator
+  - use evaluation experient from a successful run or set a baseline reference with another model?
+  - loading your own classifier, agent of your own, regression models, custom code evaluators we can attach with SDK
+  - Rate limiters are there in free models and hence have to use few cases only
+  - 
+
+
