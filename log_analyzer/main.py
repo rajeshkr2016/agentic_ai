@@ -3,26 +3,18 @@ from pathlib import Path
 from typing import Annotated, Sequence, TypedDict, Literal
 from dotenv import load_dotenv
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langsmith import traceable
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
-# Unset the model name env var to avoid conflicts
-# if "MODEL_NAME" in os.environ:
-#     del os.environ["MODEL_NAME"]
-
-from model_loader import load_model
-from log_reader import read_log_file, list_log_files
+from model.model_loader import load_model
+from tools.log_reader import read_log_file, list_log_files
 
 tools = [read_log_file, list_log_files]
 model, tool_node = load_model(tools)
 
-# Optional import for LangSmith upload functionality
-#try:
 from upload_to_langsmith import upload_logs_to_langsmith
-#except ImportError:
-#    upload_logs_to_langsmith = None
 
 # 1. Configuration & State
 load_dotenv(override=True)
@@ -31,11 +23,45 @@ os.environ["LANGSMITH_TRACING"] = "true"
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
+def _current_temperature() -> str:
+    """
+    Resolve the effective temperature for logging.
+    Prefer runtime env overrides used by evaluation script.
+    """
+    temp = os.getenv("OPENAI_TEMPERATURE") or os.getenv("LLM_TEMPERATURE")
+    return temp if temp not in (None, "") else "default"
+
+
+def _log_startup_banner(entrypoint: str) -> None:
+    """Print a single startup line when a process begins. Called once per run."""
+    log_dir = os.getenv("LOG_DIRECTORY", "./logs")
+    provider = os.getenv("LLM_PROVIDER", "openai")
+    model_name = os.getenv("MODEL_NAME", "(default)")
+    temperature = _current_temperature()
+    print(
+        f"[{entrypoint}] "
+        f"provider={provider} model={model_name} "
+        f"temperature={temperature} log_dir={log_dir}"
+    )
+
+SYSTEM_PROMPT = SystemMessage(content=(
+    "You are a log analysis agent. Your job is to read log files using the "
+    "tools available and report ONLY what you actually find in them.\n"
+    "Rules:\n"
+    "- Never fabricate errors, tracebacks, or timestamps that are not in the logs.\n"
+    "- If the logs do not contain what the user asked for, say so explicitly.\n"
+    "- Always call list_log_files first, then read the relevant files."
+))
+
 # 2. Nodes
 @traceable(run_type="llm")
 def call_model(state: AgentState):
     """The 'Brain' - decides which logs to read."""
-    response = model.invoke(state["messages"])
+    messages = list(state["messages"])
+    # Prepend system prompt if not already present
+    if not messages or not isinstance(messages[0], SystemMessage):
+        messages = [SYSTEM_PROMPT] + messages
+    response = model.invoke(messages)
     return {"messages": [response]}
 
 def summarize_results(state: AgentState):
@@ -90,8 +116,9 @@ app = workflow.compile()
 
 # 5. Main Execution
 if __name__ == "__main__":
+    _log_startup_banner("main")
     log_dir = os.getenv("LOG_DIRECTORY", "./logs")
-    
+
     inputs = {
         "messages": [
             ("user", f"Analyze the logs in '{log_dir}'. Identify any recurring crashes.")

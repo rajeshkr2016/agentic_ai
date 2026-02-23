@@ -1,12 +1,17 @@
 """
 LangSmith SDK Evaluation Script
 
-This script runs programmatic evaluations of the log analyzer agent using LangSmith SDK.
-It tests the agent against a dataset of realistic queries and evaluates the responses.
+Experiment naming convention:
+    {project}-{provider}-{model}-example-{N}
+
+Each example for each model gets its own experiment in LangSmith,
+making per-example comparisons across models trivial in the UI.
 """
 
 import os
 import json
+import argparse
+import fcntl
 from pathlib import Path
 from typing import Dict, List, Any
 from dotenv import load_dotenv
@@ -15,258 +20,417 @@ from langsmith import Client, traceable
 from langsmith.evaluation import evaluate
 from langsmith.schemas import Run
 
-from main import app
-
-# Load environment variables
 load_dotenv(override=True, dotenv_path=".env")
 
-# Initialize LangSmith client
 client = Client(api_key=os.getenv("LANGSMITH_API_KEY"))
 PROJECT_NAME = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
+_APP = None
+
+
+# ---------------------------------------------------------------------------
+# App loader
+# ---------------------------------------------------------------------------
+
+def get_app():
+    global _APP
+    if _APP is None:
+        from main import app as compiled_app
+        _APP = compiled_app
+    return _APP
 
 
 def load_evaluation_dataset() -> List[Dict[str, Any]]:
-    """Load evaluation dataset from JSON file."""
-    dataset_path = Path(__file__).parent / "evaluation_dataset.json"
+    dataset_path = Path(__file__).parent / "data/evaluation_dataset.json"
     with open(dataset_path, "r") as f:
         return json.load(f)
 
 
+# ---------------------------------------------------------------------------
+# Agent runner
+# ---------------------------------------------------------------------------
+
 @traceable(name="log_analyzer_agent")
 def run_agent(query: str) -> Dict[str, Any]:
-    """
-    Run the agent with a given query and return the final response.
-    This is wrapped with @traceable for LangSmith tracking.
-    """
     from langchain_core.messages import HumanMessage
-    
-    log_dir = os.getenv("LOG_DIRECTORY", "./logs")
-    
-    inputs = {
-        "messages": [
-            HumanMessage(content=query)
-        ]
-    }
-    
-    # Collect all messages from the stream
+    inputs = {"messages": [HumanMessage(content=query)]}
     final_messages = []
+    app = get_app()
     for output in app.stream(inputs, stream_mode="updates"):
         for node, data in output.items():
             if "messages" in data and data["messages"]:
                 final_messages.extend(data["messages"])
-    
-    # Get the last message content (final response)
     if final_messages:
-        last_message = final_messages[-1]
-        if hasattr(last_message, "content"):
-            return {"output": last_message.content}
-        else:
-            return {"output": str(last_message)}
-    
+        last = final_messages[-1]
+        return {"output": last.content if hasattr(last, "content") else str(last)}
     return {"output": "No response generated"}
 
 
 def agent_predict(inputs: Dict[str, str]) -> Dict[str, str]:
-    """
-    Wrapper function for the agent that LangSmith can evaluate.
-    This is the function that gets called during evaluation.
-    """
-    query = inputs.get("query", "")
-    result = run_agent(query)
+    """Called by LangSmith evaluate() for each example. Throttled between calls."""
+    import time
+    throttle = float(os.getenv("EVAL_THROTTLE_SECONDS", "15"))
+    result = run_agent(inputs.get("query", ""))
+    print(f"[evaluate] throttling {throttle}s before next example...")
+    time.sleep(throttle)
     return {"output": result.get("output", "")}
 
 
+# ---------------------------------------------------------------------------
+# Evaluators
+# ---------------------------------------------------------------------------
+
 def contains_evaluator(run: Run, example) -> Dict[str, Any]:
-    """
-    Custom evaluator that checks if the output contains expected keywords.
-    """
     prediction = run.outputs.get("output", "").lower()
     expected = example.outputs.get("expected_contains", [])
-    
     if not expected:
         return {"key": "contains_check", "score": 1.0}
-    
-    found_count = sum(1 for keyword in expected if keyword.lower() in prediction)
-    score = found_count / len(expected) if expected else 0.0
-    
+    found = sum(1 for k in expected if k.lower() in prediction)
     return {
         "key": "contains_check",
-        "score": score,
-        "comment": f"Found {found_count}/{len(expected)} expected keywords"
+        "score": found / len(expected),
+        "comment": f"Found {found}/{len(expected)} expected keywords",
     }
 
 
 def structure_evaluator(run: Run, example) -> Dict[str, Any]:
-    """
-    Custom evaluator that checks if the output has expected structure elements.
-    """
     prediction = run.outputs.get("output", "").lower()
-    expected_structure = example.outputs.get("expected_structure", [])
-    
-    if not expected_structure:
+    expected = example.outputs.get("expected_structure", [])
+    if not expected:
         return {"key": "structure_check", "score": 1.0}
-    
-    found_count = sum(1 for element in expected_structure if element.lower() in prediction)
-    score = found_count / len(expected_structure) if expected_structure else 0.0
-    
+    found = sum(1 for e in expected if e.lower() in prediction)
     return {
         "key": "structure_check",
-        "score": score,
-        "comment": f"Found {found_count}/{len(expected_structure)} expected structure elements"
+        "score": found / len(expected),
+        "comment": f"Found {found}/{len(expected)} expected structure elements",
     }
 
 
 def min_score_evaluator(run: Run, example) -> Dict[str, Any]:
-    """
-    Evaluator that checks if the overall score meets the minimum threshold.
-    """
     min_score = example.outputs.get("min_score", 0.7)
-    
-    # Calculate average of other evaluators
-    contains_score = contains_evaluator(run, example).get("score", 0.0)
-    structure_score = structure_evaluator(run, example).get("score", 0.0)
-    avg_score = (contains_score + structure_score) / 2
-    
-    passed = avg_score >= min_score
-    
+    avg = (
+        contains_evaluator(run, example).get("score", 0.0)
+        + structure_evaluator(run, example).get("score", 0.0)
+    ) / 2
     return {
         "key": "min_score_check",
-        "score": 1.0 if passed else 0.0,
-        "comment": f"Average score {avg_score:.2f} {'meets' if passed else 'below'} minimum {min_score}"
+        "score": 1.0 if avg >= min_score else 0.0,
+        "comment": f"Average {avg:.2f} {'meets' if avg >= min_score else 'below'} minimum {min_score}",
     }
 
 
-def run_evaluation(project_name: str = None, project_url: str = None):
-    """
-    Run the evaluation experiment using LangSmith SDK.
-    
-    Args:
-        project_name: LangSmith project name. If not provided, uses LANGSMITH_PROJECT env var.
-        project_url: LangSmith project URL. If not provided, constructs from project_name.
-    """
-    if project_name is None:
-        project_name = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
-    
-    if project_url is None:
-        project_url = f"https://smith.langchain.com/projects/{project_name}"
-    
-    print(f"🚀 Starting LangSmith evaluation for project: {project_name}")
-    print("=" * 60)
-    
-    # Load dataset
-    dataset = load_evaluation_dataset()
-    print(f"📊 Loaded {len(dataset)} test cases")
-    
-    # Create or get dataset in LangSmith
-    dataset_name = f"{project_name}-dataset"
+def llm_judge_evaluator(run: Run, example) -> Dict[str, Any]:
+    from model.model_loader import load_judge_model
+    judge_model = os.getenv("JUDGE_MODEL", "llama-3.3-70b-versatile")
+    judge_provider = os.getenv("JUDGE_PROVIDER", "groq")
+    judge = load_judge_model()
+
+    query = example.inputs.get("query", "")
+    output = run.outputs.get("output", "") if run.outputs else ""
+
+    metadata = example.metadata or {}
+    category = metadata.get("category", "general")
+    difficulty = metadata.get("difficulty", "unknown")
+
+    prompt = f"""You are an impartial judge evaluating a log analysis AI assistant.
+
+IMPORTANT CONTEXT: The agent can only report what is actually present in the logs.
+If the logs do not contain what the query asks for, a correct agent response is to
+report that finding clearly rather than fabricating results. Do NOT penalise the
+agent for the absence of data in the logs — penalise only poor reasoning or an
+unhelpful response given what the logs actually contain.
+
+Test category : {category}
+Difficulty    : {difficulty}
+
+User query:
+{query}
+
+Agent response:
+{output}
+
+Score the response from 0 to 10 on these three criteria:
+1. Relevance     - does it address the query given what the logs actually contain?
+2. Completeness  - does it cover root cause, timestamp, and a fix where applicable?
+3. Actionability - is the suggested fix or finding concrete and useful?
+
+Respond with ONLY this format, no extra text:
+SCORE: <0-10>
+REASON: <one sentence>"""
+
     try:
-        # Try to get existing dataset
-        client.read_dataset(dataset_name=dataset_name)
-        print(f"📁 Using existing dataset: {dataset_name}")
-    except Exception:
-        # Create new dataset
-        try:
-            client.create_dataset(
-                dataset_name=dataset_name,
-                description="Log analyzer agent evaluation dataset"
-            )
-            print(f"📁 Created new dataset: {dataset_name}")
-        except Exception as e:
-            print(f"⚠️  Dataset creation issue (may already exist): {e}")
-    
-    # Upload examples only if the dataset is empty (avoid duplicates on re-runs)
-    existing_examples = list(client.list_examples(dataset_name=dataset_name))
-    if existing_examples:
-        print(f"⏭️  Skipping upload — {len(existing_examples)} examples already exist in dataset")
-    else:
-        try:
-            client.create_examples(
-                inputs=[item["inputs"] for item in dataset],
-                outputs=[item["outputs"] for item in dataset],
-                dataset_name=dataset_name
-            )
-            print(f"✅ Uploaded {len(dataset)} examples to dataset")
-        except Exception as e:
-            print(f"⚠️  Example upload issue: {e}")
-            print(f"   Continuing with existing examples...")
-    
-    # Run evaluation
-    print("\n🔍 Running evaluation...")
-    print("-" * 60)
-    
+        text = judge.invoke(prompt).content.strip()
+        score_raw, reason = 0, "Could not parse judge response"
+        for line in text.splitlines():
+            if line.startswith("SCORE:"):
+                score_raw = int(line.split(":", 1)[1].strip())
+            elif line.startswith("REASON:"):
+                reason = line.split(":", 1)[1].strip()
+        score = round(min(max(score_raw, 0), 10) / 10, 2)
+        return {"key": "llm_judge", "score": score, "comment": f"[{judge_provider}/{judge_model}] {reason}"}
+    except Exception as e:
+        return {"key": "llm_judge", "score": 0.0, "comment": f"Judge error: {e}"}
+
+
+# ---------------------------------------------------------------------------
+# Experiment naming — one experiment per model per example
+# ---------------------------------------------------------------------------
+
+def _experiment_prefix(project_name: str, example_index: int) -> str:
+    """
+    Produces: {project}-{provider}-{model}-example-{N}
+    e.g.    : log-analyzer-groq-llama-3.3-70b-versatile-example-0
+    """
+    provider = os.getenv("LLM_PROVIDER", "openai")
+    model = os.getenv("MODEL_NAME", "default")
+    return f"{project_name}-{provider}-{model}-example-{example_index}"
+
+
+# ---------------------------------------------------------------------------
+# Per-example runner
+# ---------------------------------------------------------------------------
+
+def _run_single_example(
+    project_name: str,
+    project_url: str,
+    dataset_name: str,
+    examples_ordered: list,
+    example_index: int,
+    total: int,
+) -> None:
+    """Run evaluation for one example as its own named experiment."""
+    example = examples_ordered[example_index]
+    prefix = _experiment_prefix(project_name, example_index)
+
+    print(f"\n{'─' * 60}")
+    print(f"🔍 Example #{example_index} of {total - 1}")
+    print(f"🏷️  Experiment: {prefix}")
+    print(f"   Query: {example.inputs.get('query', '')}")
+    print(f"{'─' * 60}")
+
     results = evaluate(
         agent_predict,
-        data=dataset_name,
+        data=[example],
         evaluators=[
             contains_evaluator,
             structure_evaluator,
             min_score_evaluator,
+            llm_judge_evaluator,
         ],
-        experiment_prefix=f"{project_name}-experiment",
-        max_concurrency=1,  # Run sequentially to avoid rate limits
+        experiment_prefix=prefix,
+        max_concurrency=1,
     )
-    
-    print("\n" + "=" * 60)
-    print("📈 Evaluation Results Summary")
-    print("=" * 60)
-    
-    # Wait for experiment feedback to be processed so we can read results
+
     results.wait()
-    
-    # Get the correct experiment URL directly from results.experiment_name
-    results_url = project_url  # fallback
+
+    for row in results:
+        res_list = getattr(getattr(row, "evaluation_results", None), "results", []) or []
+        for r in res_list:
+            key = getattr(r, "key", "?")
+            score = getattr(r, "score", None)
+            comment = getattr(r, "comment", "")
+            if score is not None:
+                print(f"   {key}: {float(score):.2f}  — {comment}")
+
+    results_url = project_url
     try:
-        experiment_name = results.experiment_name
-        experiment_project = client.read_project(project_name=experiment_name)
-        experiment_url = getattr(experiment_project, 'url', None)
-        if experiment_url:
-            results_url = experiment_url
+        exp_project = client.read_project(project_name=results.experiment_name)
+        url = getattr(exp_project, "url", None)
+        if url:
+            results_url = url
         else:
-            # Construct URL from dataset id + experiment id
-            dataset = client.read_dataset(dataset_name=dataset_name)
+            ds = client.read_dataset(dataset_name=dataset_name)
             results_url = (
-                f"https://smith.langchain.com/o/~/datasets/{dataset.id}/compare"
-                f"?selectedSessions={experiment_project.id}"
+                f"https://smith.langchain.com/o/~/datasets/{ds.id}/compare"
+                f"?selectedSessions={exp_project.id}"
             )
     except Exception:
         pass
-    
-    # Aggregate scores by evaluator key
-    scores_by_key: Dict[str, List[float]] = {}
-    n_results = 0
-    for row in results:
-        n_results += 1
-        eval_results = getattr(row, "evaluation_results", None)
-        if eval_results is None:
-            continue
-        res_list = getattr(eval_results, "results", [])
-        for r in res_list or []:
-            key = getattr(r, "key", "unknown")
-            score = getattr(r, "score", None)
-            if score is not None and isinstance(score, (int, float)):
-                scores_by_key.setdefault(key, []).append(float(score))
-    
-    if not scores_by_key and n_results == 0:
-        print("\n⚠️  No evaluation results found. Results may still be processing.")
-        print("   Check the LangSmith UI in a minute for full feedback.")
+
+    print(f"   📊 {results_url}")
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def run_evaluation(
+    project_name: str = None,
+    project_url: str = None,
+    temperature: float | None = None,
+    example_index: int | None = None,
+) -> None:
+    """
+    Acquires a process lock (one experiment at a time), then runs either
+    a single example or all examples — each as its own named experiment.
+    """
+    if temperature is not None:
+        os.environ["LLM_TEMPERATURE"] = str(temperature)
+        os.environ["OPENAI_TEMPERATURE"] = str(temperature)
+
+    if project_name is None:
+        project_name = os.getenv("LANGSMITH_PROJECT", "log-analyzer")
+    if project_url is None:
+        project_url = f"https://smith.langchain.com/projects/{project_name}"
+
+    from main import _log_startup_banner
+    _log_startup_banner("evaluate")
+
+    lock_path = Path("/tmp/log_analyzer_eval.lock")
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("⛔ Another evaluation is already running.")
+        print(f"   Wait for it to finish or delete {lock_path} if it's stale.")
+        lock_file.close()
+        return
+
+    try:
+        _run_evaluation_inner(project_name, project_url, temperature, example_index)
+    finally:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+        lock_path.unlink(missing_ok=True)
+
+
+def _run_evaluation_inner(
+    project_name: str,
+    project_url: str,
+    temperature: float | None,
+    example_index: int | None,
+) -> None:
+    print(f"🚀 Starting LangSmith evaluation for project: {project_name}")
+    if temperature is not None:
+        print(f"🌡️  Temperature override: {temperature}")
+    print("=" * 60)
+
+    local_dataset = load_evaluation_dataset()
+    total = len(local_dataset)
+
+    if example_index is not None and not (0 <= example_index < total):
+        raise ValueError(
+            f"--example {example_index} is out of range. "
+            f"Dataset has {total} examples (0-{total - 1})."
+        )
+
+    indices_to_run = [example_index] if example_index is not None else list(range(total))
+    print(f"📊 Examples to run: {indices_to_run} (of {total} total)")
+
+    # Ensure dataset exists in LangSmith
+    dataset_name = f"{project_name}-dataset"
+    try:
+        client.read_dataset(dataset_name=dataset_name)
+        print(f"📁 Using existing dataset: {dataset_name}")
+    except Exception:
+        try:
+            client.create_dataset(dataset_name=dataset_name, description="Log analyzer agent evaluation dataset")
+            print(f"📁 Created new dataset: {dataset_name}")
+        except Exception as e:
+            print(f"⚠️  Dataset creation issue: {e}")
+
+    # Upload examples if dataset is empty
+    existing_examples = list(client.list_examples(dataset_name=dataset_name))
+    if existing_examples:
+        print(f"⏭️  Skipping upload — {len(existing_examples)} examples already exist")
     else:
-        print(f"\n✅ Evaluation completed ({n_results} runs)")
-        if scores_by_key:
-            print("\n  Evaluator scores (average):")
-            for key in sorted(scores_by_key.keys()):
-                vals = scores_by_key[key]
-                avg = sum(vals) / len(vals) if vals else 0
-                print(f"    {key}: {avg:.2f}  (n={len(vals)})")
-        print(f"\n📊 View full results in LangSmith:")
-        print(f"   {results_url}")
+        try:
+            client.create_examples(
+                inputs=[item["inputs"] for item in local_dataset],
+                outputs=[item["outputs"] for item in local_dataset],
+                dataset_name=dataset_name,
+            )
+            print(f"✅ Uploaded {total} examples to dataset")
+            existing_examples = list(client.list_examples(dataset_name=dataset_name))
+        except Exception as e:
+            print(f"⚠️  Example upload issue: {e}")
+
+    # Sort by creation time so index 0 always maps to first uploaded example
+    examples_ordered = sorted(existing_examples, key=lambda e: e.created_at)
+
+    if not examples_ordered:
+        print("❌ No examples found in remote dataset. Cannot run evaluation.")
+        return
+
+    if len(examples_ordered) != total:
+        print(f"⚠️  Remote dataset has {len(examples_ordered)} examples but local has {total}. Indices may be misaligned.")
+
+    # Run each example as its own experiment, one at a time
+    for idx in indices_to_run:
+        _run_single_example(
+            project_name=project_name,
+            project_url=project_url,
+            dataset_name=dataset_name,
+            examples_ordered=examples_ordered,
+            example_index=idx,
+            total=total,
+        )
+
+    print(f"\n{'=' * 60}")
+    print(f"✅ All {len(indices_to_run)} experiment(s) complete.")
     print()
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
-    # Validate API key
+    parser = argparse.ArgumentParser(description="Run LangSmith evaluation for log analyzer.")
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Model temperature override (e.g., 0.0, 0.5, 1.0).",
+    )
+    parser.add_argument(
+        "--example",
+        type=int,
+        default=None,
+        metavar="INDEX",
+        help=(
+            "Run a single example by index (0-5) as its own experiment. "
+            "Omit to run all examples, each as a separate experiment."
+        ),
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Agent LLM provider, overrides LLM_PROVIDER in .env (e.g. groq, openai, google).",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Agent model name, overrides MODEL_NAME in .env (e.g. llama-3.3-70b-versatile).",
+    )
+    parser.add_argument(
+        "--judge-provider",
+        type=str,
+        default=None,
+        dest="judge_provider",
+        help="Judge LLM provider, overrides JUDGE_PROVIDER in .env.",
+    )
+    parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        dest="judge_model",
+        help="Judge model name, overrides JUDGE_MODEL in .env.",
+    )
+    args = parser.parse_args()
+
+    # CLI args override .env — set before run_evaluation loads the app
+    if args.provider:
+        os.environ["LLM_PROVIDER"] = args.provider
+    if args.model:
+        os.environ["MODEL_NAME"] = args.model
+    if args.judge_provider:
+        os.environ["JUDGE_PROVIDER"] = args.judge_provider
+    if args.judge_model:
+        os.environ["JUDGE_MODEL"] = args.judge_model
+
     if not os.getenv("LANGSMITH_API_KEY"):
-        raise ValueError(
-            "LANGSMITH_API_KEY not found. Please set it in your .env file."
-        )
-    
-    run_evaluation()
+        raise ValueError("LANGSMITH_API_KEY not found. Please set it in your .env file.")
+
+    run_evaluation(temperature=args.temperature, example_index=args.example)

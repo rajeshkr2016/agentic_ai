@@ -11,7 +11,7 @@ try:
 except ImportError:
     run_evaluation = None
 
-def upload_logs_to_langsmith(dataset_name: str, log_dir: str, project_name: str = None):
+def upload_logs_to_langsmith(logs_dataset_name: str, log_dir: str, project_name: str = None):
     client = Client()
     
     # Set default project name
@@ -47,15 +47,15 @@ def upload_logs_to_langsmith(dataset_name: str, log_dir: str, project_name: str 
             project_url = f"https://smith.langchain.com/projects/{project_name}"
     
     # 2. Create the dataset (or get existing)
-    if not client.has_dataset(dataset_name=dataset_name):
+    if not client.has_dataset(dataset_name=logs_dataset_name):
         dataset = client.create_dataset(
-            dataset_name=dataset_name, 
+            dataset_name=logs_dataset_name, 
             description="Dataset of server logs for error analysis benchmarking."
         )
-        print(f"✅ Created new dataset: {dataset_name}")
+        print(f"✅ Created new dataset: {logs_dataset_name}")
     else:
-        dataset = client.read_dataset(dataset_name=dataset_name)
-        print(f"✅ Found existing dataset: {dataset_name}")
+        dataset = client.read_dataset(dataset_name=logs_dataset_name)
+        print(f"✅ Found existing dataset: {logs_dataset_name}")
 
     # 3. Prepare examples from local files
     log_path = Path(log_dir)
@@ -77,7 +77,7 @@ def upload_logs_to_langsmith(dataset_name: str, log_dir: str, project_name: str 
             inputs=[e["inputs"] for e in examples],
             outputs=[e["outputs"] for e in examples]
         )
-        print(f"✅ Uploaded {len(examples)} logs to dataset: {dataset_name}")
+        print(f"✅ Uploaded {len(examples)} logs to dataset: {logs_dataset_name}")
     else:
         print(f"⚠️  No log files found in {log_dir}")
     
@@ -92,12 +92,14 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # Use consistent dataset name
-    dataset_name = f"{PROJECT_NAME}-dataset"
+    # dataset_name = f"{PROJECT_NAME}-dataset"
+
+    logs_dataset_name = f"{PROJECT_NAME}-logs"
     
     # Step 1: Upload logs
     print("\n📤 Step 1: Uploading logs to LangSmith...")
     print("-" * 60)
-    project_url = upload_logs_to_langsmith(dataset_name, LOG_DIRECTORY, PROJECT_NAME)
+    project_url = upload_logs_to_langsmith(logs_dataset_name, LOG_DIRECTORY, PROJECT_NAME)
     
     # Step 2: Run evaluation
     if run_evaluation:
